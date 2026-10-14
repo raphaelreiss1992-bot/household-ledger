@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src https://www.googleapis.com https://oauth2.googleapis.com; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#FFFFFF">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ledger">
+<title>Household ledger</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/gate.css">
+</head>
+<body>
+<div class="top">
+  <div class="wrap">
+    <div class="bar1">
+      <button class="iconbtn" id="backBtn" data-layer="bank" hidden aria-label="Back to bank account"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <div class="brand"><span id="title">Bank account</span><small id="storeStatus">Loading…</small></div>
+      <button class="iconbtn" data-view="settings" aria-label="Settings"><svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+      <button class="btn pri sm" id="uploadBtn">Upload</button>
+    </div>
+    <nav class="tabs" id="tabs" aria-label="Card views"></nav>
+    <div class="strip" id="strip" hidden></div>
+    <div class="abar" id="abar"></div>
+  </div>
+</div>
+<div class="wrap">
+  <div class="frow" id="frow"></div>
+  <main id="main"><div class="empty">Loading your ledger…</div></main>
+</div>
+<input type="file" id="fileIn" multiple hidden accept=".xlsx,.xls,.csv,.pdf,image/*">
+
+<script src="config.js"></script>
+<script src="vendor/chart.umd.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="js/drive-db.js"></script>
+<script src="js/app.js"></script>
+<script src="js/register-sw.js"></script>
+</body>
+</html>
