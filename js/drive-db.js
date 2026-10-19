@@ -13,7 +13,9 @@
 (function () {
   "use strict";
   const CFG = window.LEDGER_CONFIG || {};
-  const SCOPES = ["https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive.readonly"];
+  // Full Drive access is needed so each person in the household can save into a folder someone else owns.
+  const SCOPES = ["https://www.googleapis.com/auth/drive"];
+  const TOKEN_V = 2; // bump when SCOPES change, so everyone approves the new permission once
   const API = "https://www.googleapis.com/drive/v3/files";
   const UP = "https://www.googleapis.com/upload/drive/v3/files";
   const FOLDER_MIME = "application/vnd.google-apps.folder";
@@ -82,8 +84,8 @@
     if (p.get("error")) return { error: p.get("error") === "access_denied" ? "Access to Google Drive was not given." : p.get("error") };
     if (!expected || p.get("state") !== expected) return { error: "Sign in could not be verified. Try again." };
     const granted = (p.get("scope") || "").split(" ");
-    if (!SCOPES.every((s) => granted.includes(s))) return { error: "Both Google Drive permissions are needed: tick both boxes on Google's screen." };
-    return { token: p.get("access_token"), exp: Date.now() + (+p.get("expires_in") || 3600) * 1000 };
+    if (!SCOPES.every((s) => granted.includes(s))) return { error: "Google Drive access is needed: tick the Google Drive box on Google's screen." };
+    return { token: p.get("access_token"), exp: Date.now() + (+p.get("expires_in") || 3600) * 1000, v: TOKEN_V };
   }
   function redirectToGoogle() {
     const state = b64(crypto.getRandomValues(new Uint8Array(16))).replace(/[^a-zA-Z0-9]/g, "");
@@ -97,7 +99,7 @@
     return new Promise(() => {}); // the page is leaving
   }
   function loadSavedToken() {
-    try { const t = JSON.parse(localStorage.getItem("ledger-token") || "null"); if (t && t.exp > Date.now() + 120000) { token = t.token; tokenExp = t.exp; return true; } } catch (e) {}
+    try { const t = JSON.parse(localStorage.getItem("ledger-token") || "null"); if (t && t.v === TOKEN_V && t.exp > Date.now() + 120000) { token = t.token; tokenExp = t.exp; return true; } } catch (e) {}
     return false;
   }
   function saveToken(t) { token = t.token; tokenExp = t.exp; localStorage.setItem("ledger-token", JSON.stringify(t)); }
@@ -125,8 +127,12 @@
   }
   async function findOrCreateFolder(role, parent) {
     const query = `mimeType='${FOLDER_MIME}' and trashed=false and appProperties has { key='ledger' and value='${role}' }` + (parent ? ` and '${parent}' in parents` : "");
-    const r = await (await api(`${API}?q=${q(query)}&fields=files(id)&spaces=drive`)).json();
-    if (r.files && r.files.length) return r.files[0].id;
+    const r = await (await api(`${API}?q=${q(query)}&fields=files(id,ownedByMe,createdTime)&spaces=drive&orderBy=createdTime`)).json();
+    if (r.files && r.files.length) {
+      // a household folder someone shared with you comes first, so you see the same ledger as them
+      const shared = !parent && r.files.find((f) => !f.ownedByMe);
+      return (shared || r.files[0]).id;
+    }
     const body = { name: NAMES[role], mimeType: FOLDER_MIME, appProperties: { ledger: role } };
     if (parent) body.parents = [parent];
     const c = await (await api(API + "?fields=id", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
@@ -337,9 +343,27 @@
     });
   }
 
+  /* ---------- household (sharing the folder by email) ---------- */
+  const household = {
+    me: async () => (await (await api("https://www.googleapis.com/drive/v3/about?fields=user(emailAddress,displayName)")).json()).user || {},
+    list: async () => {
+      const r = await (await api(`${API}/${ids.root}/permissions?fields=permissions(id,emailAddress,displayName,role,type)`)).json();
+      return (r.permissions || []).filter((p) => p.type === "user").map((p) => ({ id: p.id, email: p.emailAddress || "", name: p.displayName || "", role: p.role }));
+    },
+    add: async (email) => {
+      email = String(email || "").trim().toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw err("invalid", "That email address does not look right.");
+      const msg = "I added you to our Household ledger. Open the app, sign in with this Google account, and I will tell you the passphrase in person.";
+      await api(`${API}/${ids.root}/permissions?sendNotificationEmail=true&emailMessage=${q(msg)}&fields=id`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: "writer", type: "user", emailAddress: email }) });
+    },
+    remove: async (id) => { await api(`${API}/${ids.root}/permissions/${id}`, { method: "DELETE" }); },
+    isOwner: async () => (await (await api(`${API}/${ids.root}?fields=ownedByMe`)).json()).ownedByMe,
+  };
+
   /* ---------- public ---------- */
   window.LedgerGate = {
     inbox,
+    household,
     ready: async () => {
       try {
         await signIn(); await unlock();

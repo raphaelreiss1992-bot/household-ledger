@@ -342,8 +342,9 @@ const BANK_VIEWS=[['cashflow','Overview'],['banktx','Transactions'],['planned','
 const CARD_VIEWS=[['overview','Overview'],['trends','Trends'],['categories','Categories'],['stores','Stores'],['cards','Cards'],['recurring','Recurring'],['budget','Budget'],['alerts','Alerts'],['transactions','Transactions'],['installments','Installments'],['fees','Fees & FX'],['inbox','Unclear']];
 const VIEWS=[...BANK_VIEWS,...CARD_VIEWS];
 const layerOf=v=>CARD_VIEWS.some(x=>x[0]===v)?'cards':'bank';
-function renderCrumbs(){const v=S.view;const t={ask:'Ask',settings:'Settings'}[v]||(layerOf(v)==='cards'?'Credit cards':'Bank account');$('#title').textContent=t;$('#backBtn').hidden=layerOf(v)==='bank'&&v!=='ask'&&v!=='settings';document.querySelectorAll('.bar1 [data-view]').forEach(b=>b.classList.toggle('on',b.dataset.view===v))}
-function renderAll(){const L=layerOf(S.view);const tabbed=v=>[...BANK_VIEWS,...CARD_VIEWS].some(x=>x[0]===v);$('#strip').style.display='none';$('#tabs').style.display=tabbed(S.view)?'':'none';renderCrumbs();renderTabs();renderFilters();renderActionBar();renderMain()}
+function navOf(v){return v==='settings'?'settings':v==='ask'?'':layerOf(v)}
+function renderCrumbs(){const v=S.view;const t={ask:'Ask',settings:'Settings'}[v]||(layerOf(v)==='cards'?'Credit cards':'Bank account');$('#title').textContent=t;$('#backBtn').hidden=true;const n=navOf(v);document.querySelectorAll('.side [data-nav]').forEach(b=>{const on=b.dataset.nav===n;b.classList.toggle('on',on);if(on)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')})}
+function renderAll(){const L=layerOf(S.view);document.body.dataset.layer=S.view==='settings'?'settings':S.view==='ask'?'ask':L;const tabbed=v=>[...BANK_VIEWS,...CARD_VIEWS].some(x=>x[0]===v);$('#strip').style.display='none';$('#tabs').style.display=tabbed(S.view)?'':'none';renderCrumbs();renderTabs();renderFilters();renderActionBar();renderMain()}
 function filterCount(){if(layerOf(S.view)==='cards'){const F=S.F;return F.person.length+F.card.length+F.cat.length+F.type.length+(F.store?1:0)+((F.min!==''||F.max!=='')?1:0)+(F.exTravel?1:0)+(F.q?1:0)}return (S.cf.spread?1:0)+(S.cf.future?1:0)+Object.keys(S.meta.bankCount||{}).length}
 function monthCtx(){const cards=layerOf(S.view)==='cards';if(cards)return{list:months(),M:S.month,note:()=>'',set:m=>{S.month=m;if(m<S.F.from)S.F.from=m;if(m>S.F.to)S.F.to=m}};
   const list=[...bankMonths(),...futureMonths()];if(!S.bankMonth||!list.includes(S.bankMonth))S.bankMonth=defaultBankMonth();return{list,M:S.bankMonth,note:m=>futureMonths().includes(m)?'expected':bankPartial(m)?'partial':'',set:m=>{S.bankMonth=m}}}
@@ -494,6 +495,7 @@ window.view_trends=function(){
     <div class="panel"><h2>By day of week <small>average per week, regular purchases only</small></h2><div class="chart"><canvas id="c_wd"></canvas></div></div>
     <div class="panel"><h2>Cafés, delivery and lottery <small>your savings targets</small></h2><div class="chart"><canvas id="c_targets"></canvas></div></div>
   </div>
+  <div class="panel"><h2>By day of the month <small>average spent on each day, ${mLabel(ms[0])} to ${mLabel(ms[ms.length-1])}, with ${mLabel(S.month)} on top. Installments left out</small></h2><div class="chart tall"><canvas id="c_dom"></canvas></div><p class="status" id="dom_note" style="margin-top:8px"></p></div>
   <div class="panel"><h2>Top stores <small>tap one for its history</small></h2><div class="spark">${stiles}</div></div>`;
 };
 window.after_trends=function(){drawDir();
@@ -515,6 +517,19 @@ window.after_trends=function(){drawDir();
   const WDN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];const weeks=Math.max(1,ms.length*4.345);
   const reg=rows.filter(r=>r.t==='regular'&&r.a>0&&!['Travel'].includes(r.c));
   chart('c_wd',{type:'bar',data:{labels:WDN,datasets:[{label:'Per week',data:WDN.map((_,i)=>r2(sum(reg.filter(r=>new Date(r.d+'T12:00:00').getDay()===i).map(r=>r.a))/weeks)),backgroundColor:WDN.map((_,i)=>i===5||i===6?'#D08A2C':P),borderRadius:3}]},options:{plugins:{legend:{display:false}}}});
+  // by day of the month
+  const D31=Array.from({length:31},(_,i)=>i+1);const dim=m=>new Date(+m.slice(0,4),+m.slice(5,7),0).getDate();
+  const domR=rows.filter(r=>r.a>0&&r.t!=='installment');const dayOf=r=>+r.d.slice(8,10);
+  const domAvg=D31.map(d=>{const mm=ms.filter(m=>dim(m)>=d);return mm.length?r2(sum(domR.filter(r=>mm.includes(r.m)&&dayOf(r)===d).map(r=>r.a))/mm.length):0});
+  const domCur=D31.map(d=>{if(d>dim(M))return null;const v=sum(domR.filter(r=>r.m===M&&dayOf(r)===d).map(r=>r.a));return d>lastDay?null:r2(v)});
+  const third=[sum(domAvg.slice(0,10)),sum(domAvg.slice(10,20)),sum(domAvg.slice(20))];const tt=sum(third)||1;
+  const top=domAvg.map((v,i)=>[i+1,v]).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>x[0]);
+  const dn=document.getElementById('dom_note');if(dn)dn.innerHTML=`Days 1 to 10: <b>${Math.round(third[0]/tt*100)}%</b> of the month's spending, days 11 to 20: <b>${Math.round(third[1]/tt*100)}%</b>, day 21 to the end: <b>${Math.round(third[2]/tt*100)}%</b>. Biggest days on average: ${top.map(d=>'the '+d+(d%10===1&&d!==11?'st':d%10===2&&d!==12?'nd':d%10===3&&d!==13?'rd':'th')).join(', ')}.`;
+  chart('c_dom',{type:'bar',data:{labels:D31,datasets:[
+    {label:'Average month',data:domAvg,backgroundColor:'#A9BEC4',borderRadius:3,order:2},
+    {label:mLabel(M),data:domCur,backgroundColor:P,borderRadius:3,order:1}]},
+    options:{plugins:{legend:{position:'bottom',labels:{boxWidth:10,boxHeight:10,padding:10,font:{size:11.5}}},tooltip:{callbacks:{title:c=>'Day '+c[0].label,label:c=>c.parsed.y==null?'':`${c.dataset.label}: ${ils(c.parsed.y)}`}}},
+      scales:{x:{grid:{display:false},ticks:{maxRotation:0,autoSkip:false,callback:(v,i)=>(i%5===0||i===30)?D31[i]:''}},y:{beginAtZero:true,grid:{color:css('--line2')},border:{display:false},ticks:{callback:v=>ils(v)}}}}});
   const tg=[['Restaurants & cafés',null],['Delivery',240],['Lottery',60]];
   chart('c_targets',{type:'line',data:{labels:L,datasets:tg.map(([c])=>({label:CL(c),data:ms.map(m=>r2(sum(rows.filter(r=>r.c===c&&r.m===m).map(r=>r.a)))),borderColor:catColor(c),backgroundColor:catColor(c),borderWidth:2,pointRadius:2,tension:.25}))}});
 };
@@ -608,9 +623,29 @@ window.view_ask=function(){
   ${S.chat.length?'':`<div class="sugs">${sugs.map(s=>`<button class="btn sm" data-sug="${esc(s)}">${esc(s)}</button>`).join('')}</div>`}
   <p class="note">Answers are computed from your saved transactions using the filters you pick, and each call uses your Claude plan.</p></div>`;
 };
+
+async function loadHousehold(){
+  const H=window.LedgerGate&&window.LedgerGate.household;const el=$('#hhList');if(!el)return;
+  if(!H){el.innerHTML='<p class="hint">Not available.</p>';return}
+  try{
+    const [me,list,owner]=await Promise.all([H.me(),H.list(),H.isOwner()]);
+    const mine=(me.emailAddress||'').toLowerCase();
+    list.sort((a,b)=>(a.role==='owner'?-1:0)-(b.role==='owner'?-1:0));
+    el.innerHTML=`<div class="hhlist">${list.map(p=>{const you=p.email.toLowerCase()===mine;return `<div class="hhrow"><span class="hhav" aria-hidden="true">${esc((p.name||p.email||'?').trim()[0].toUpperCase())}</span><div><b>${esc(p.name||p.email)}${you?' <small>(you)</small>':''}</b><small>${esc(p.email)} · ${p.role==='owner'?'Owner':'Can see and edit'}</small></div>${p.role!=='owner'&&!you&&owner?`<button class="linkbtn danger" data-hhrm="${esc(p.id)}" data-hhname="${esc(p.name||p.email)}">Remove</button>`:''}</div>`}).join('')}</div>`;
+    if(!owner){const f=$('#hhForm');if(f)f.style.display='none';$('#hhNote').textContent='Only the owner can add or remove people.'}
+  }catch(e){el.innerHTML=`<p class="badline">Could not load the household (${esc(e.code||e.message)}).</p>`}
+}
+window.after_settings=function(){
+  loadHousehold();
+  const f=$('#hhForm');if(f)f.onsubmit=async e=>{e.preventDefault();const email=$('#hhEmail').value.trim();const b=$('#hhAdd');b.disabled=true;b.textContent='Adding…';
+    try{await window.LedgerGate.household.add(email);$('#hhEmail').value='';$('#hhNote').innerHTML=`Added <b>${esc(email)}</b>. Google emailed them a link to the folder. Next: add them as a test user in Google Cloud, then tell them the passphrase in person.`;loadHousehold()}
+    catch(x){toast('Could not add: '+(x.message||x.code),6000)}finally{b.disabled=false;b.textContent='Add person'}};
+};
 window.view_settings=function(){
   const cards=Object.entries(S.meta.cards);const T=S.meta.thresholds;
-  return `<div class="panel"><h2>People and cards</h2><p class="hint">Switch a card off to hide it everywhere, including its bills in Cash flow.</p><div class="cardlist">${cards.map(([k,c])=>`<div class="cardrow ${c.hidden?'off':''}"><label class="switch" aria-label="Show card ${esc(k)}"><input type="checkbox" data-cardshow="${esc(k)}" ${c.hidden?'':'checked'}><span></span></label><div class="cn"><input class="inp ghostinp" data-cardis="${esc(k)}" value="${esc(c.issuer)}" aria-label="Name for card ${esc(k)}"><small>Card ${esc(k)}, ${S.rows.filter(r=>r.k===k).length} transactions</small></div><select class="inp" data-cardp="${esc(k)}" aria-label="Who uses card ${esc(k)}">${S.meta.people.map(p=>`<option ${p===c.person?'selected':''}>${esc(p)}</option>`).join('')}</select></div>`).join('')}</div>
+  return `<div class="panel" id="hhPanel"><h2>Household</h2><p class="hint">People who see and edit the same ledger, each with their own Google account. They also need the passphrase, which you tell them in person.</p><div id="hhList"><p class="hint">Loading…</p></div>
+    <form class="hhadd" id="hhForm"><input class="inp" id="hhEmail" type="email" placeholder="Their Gmail address" autocomplete="off" required><button class="btn pri" type="submit" id="hhAdd">Add person</button></form><p class="hint" id="hhNote"></p></div>
+  <div class="panel"><h2>People and cards</h2><p class="hint">Switch a card off to hide it everywhere, including its bills in Cash flow.</p><div class="cardlist">${cards.map(([k,c])=>`<div class="cardrow ${c.hidden?'off':''}"><label class="switch" aria-label="Show card ${esc(k)}"><input type="checkbox" data-cardshow="${esc(k)}" ${c.hidden?'':'checked'}><span></span></label><div class="cn"><input class="inp ghostinp" data-cardis="${esc(k)}" value="${esc(c.issuer)}" aria-label="Name for card ${esc(k)}"><small>Card ${esc(k)}, ${S.rows.filter(r=>r.k===k).length} transactions</small></div><select class="inp" data-cardp="${esc(k)}" aria-label="Who uses card ${esc(k)}">${S.meta.people.map(p=>`<option ${p===c.person?'selected':''}>${esc(p)}</option>`).join('')}</select></div>`).join('')}</div>
   <div class="field"><label>People (comma separated)</label><input class="inp" id="peopleIn" value="${esc(S.meta.people.join(', '))}"></div></div>
   <div class="panel"><h2>Alert thresholds</h2><div class="row2">
   ${[['catPct','Category above 6 month average (%)'],['catMin','and at least (₪)'],['storePct','Store above its usual month (%)'],['ticketX','Purchase vs usual ticket (times)'],['large','Large purchase from (₪)'],['budgetWarn','Budget warning at (%)']].map(([k,l])=>`<div class="field"><label>${l}</label><input class="inp" inputmode="numeric" data-thr="${k}" value="${T[k]}"></div>`).join('')}</div></div>
@@ -688,7 +723,7 @@ function cfRows(){
   return out;
 }
 function fullMonths(){return bankMonths().filter(m=>!bankPartial(m))}
-function futureMonths(){const ms=bankMonths();const last=ms[ms.length-1];return S.cf.future&&last?[1,2,3].map(i=>addM(last,i)):[]}
+function futureMonths(){return []}
 function planDates(p){const last=S.bank.filter(r=>isPlanPay(r,p)).map(r=>r.d).sort().pop();let d=last?addM(last.slice(0,7),p.every)+last.slice(7):p.next;const out=[];const end=addM(bankMonths().slice(-1)[0],6);while(d&&d.slice(0,7)<=end&&out.length<24){out.push(d);d=addM(d.slice(0,7),p.every)+d.slice(7)}return out}
 function forecast(m){
   const fm=fullMonths().slice(-3);const B=cfRows();const pc=planned().map(p=>p.c);
@@ -734,7 +769,6 @@ function openCfOptions(){
   sheet(`<div class="shead"><span></span><b>View options</b><button type="button" class="btn pri sm" id="optDone">Done</button></div>
   <div class="optlist">
   <label class="opt"><input type="checkbox" data-cfopt="spread" ${S.cf.spread?'checked':''}><span><b>Spread rent per month</b><small>Show 9,800 ₪ every month instead of one payment every three months.</small></span></label>
-  <label class="opt"><input type="checkbox" data-cfopt="future" ${S.cf.future?'checked':''}><span><b>Show expected months</b><small>Add the next three months, estimated from your recent full months and planned payments.</small></span></label>
   <button class="opt optbtn" id="cfCount"><span><b>What counts as earned and spent</b><small>Currently not counted: ${esc(bankCats().filter(isSav).map(CL).join(', ')||'nothing')}</small></span><span aria-hidden="true">›</span></button>
   </div>`);
   $('#optDone').onclick=closeSheet;
@@ -752,53 +786,69 @@ function openBankFilter(){
   sheet(`<div class="shead"><button type="button" class="btn ghost" id="bfCancel">Cancel</button><b>Filter</b><button type="button" class="btn pri sm" id="bfApply">Apply</button></div>
   <h3 class="sh3">View</h3>
   <label class="opt"><input type="checkbox" id="bfSpread" ${S.cf.spread?'checked':''}><span><b>Spread rent per month</b><small>Show the rent as a monthly amount instead of one payment every few months.</small></span></label>
-  <label class="opt"><input type="checkbox" id="bfFuture" ${S.cf.future?'checked':''}><span><b>Show expected months</b><small>Add the next three months, estimated from recent full months and planned payments.</small></span></label>
   <h3 class="sh3">Counted as earned and spent</h3><p class="hint">Untick money that is only moving, like savings, investments or paying down the mortgage.</p>
   <div class="catlist">${cats.map(c=>`<label class="catrow" style="grid-template-columns:auto 10px minmax(0,1fr) auto;cursor:pointer"><input type="checkbox" data-ct="${esc(c)}" ${isSav(c)?'':'checked'}><i style="background:${bColor(c)}"></i><span>${esc(CL(c))}</span><span class="status">${n(c)}</span></label>`).join('')}</div>`);
   $('#bfCancel').onclick=closeSheet;
-  $('#bfApply').onclick=()=>{S.cf.spread=$('#bfSpread').checked;S.cf.future=$('#bfFuture').checked;const o={};document.querySelectorAll('[data-ct]').forEach(i=>{const c=i.dataset.ct;if(i.checked!==!isSavDefault(c))o[c]=i.checked});S.meta.bankCount=o;saveMeta();closeSheet();S.bankMonth=null;renderAll()};
+  $('#bfApply').onclick=()=>{S.cf.spread=$('#bfSpread').checked;S.cf.future=false;const o={};document.querySelectorAll('[data-ct]').forEach(i=>{const c=i.dataset.ct;if(i.checked!==!isSavDefault(c))o[c]=i.checked});S.meta.bankCount=o;saveMeta();closeSheet();S.bankMonth=null;renderAll()};
 }
-function waterfallHTML(earned,outs,left){
-  const lo=Math.min(0,left),hi=Math.max(earned,1);const span=hi-lo;const X=v=>(v-lo)/span*100;
-  let run=earned;const steps=[{l:'Earned',a:0,b:earned,c:'var(--pos)',v:ils(earned),strong:1}];
-  for(const[c,v]of outs){steps.push({l:CL(c),a:run-v,b:run,c:bColor(c),v:'−'+ils(v),cat:c});run-=v}
-  steps.push({l:left>=0?'Left over':'Shortfall',a:Math.min(0,left),b:Math.max(0,left),c:left>=0?'var(--pos)':'var(--neg)',v:(left>=0?'+':'−')+ils(Math.abs(left)),strong:1});
-  return `<div class="wf" role="list">${steps.map(s=>`<div class="wfr ${s.strong?'strong':''}" role="listitem"><span class="wl">${esc(s.l)}</span><span class="wt"><span class="wz" style="left:${X(0)}%"></span><span class="wb" style="left:${X(s.a)}%;width:${Math.max(.6,X(s.b)-X(s.a))}%;background:${s.c}"></span></span><b class="wv num">${s.v}</b></div>`).join('')}</div>`;
+function evsHTML(D){
+  const E=D.earned,Sp=D.spent,max=Math.max(E,Sp,1);const pct=v=>(v/max*100).toFixed(2)+'%';
+  const over=Sp>E;const diff=Math.abs(E-Sp);const ratio=E?Math.round(Sp/E*100):null;
+  const spentBar=over?`<span class="evs-fill sp joined" style="width:${pct(E)}"></span><span class="evs-fill neg" style="left:${pct(E)};width:${pct(Sp-E)}"></span>`:`<span class="evs-fill sp${E-Sp>0.5?' joined':''}" style="width:${pct(Sp)}"></span><span class="evs-gap" style="left:${pct(Sp)};width:${pct(E-Sp)}"></span>`;
+  return `<section class="sec evs box"><div class="evs-head"><div><h2>Earned vs spent</h2><p class="hint">${ratio==null?'Nothing earned this month.':`You spent <b>${ratio}%</b> of what you earned.`}</p></div>
+    <div class="evs-result ${over?'neg':'pos'}"><small>${over?'Overspent':'Left over'}</small><b class="num">${over?'−':'+'}${ils(diff)}</b></div></div>
+    <div class="evs-bars" role="img" aria-label="Earned ${ils(E)}, spent ${ils(Sp)}, ${over?'overspent':'left over'} ${ils(diff)}">
+      <div class="evs-row"><span class="evs-l">Earned</span><span class="evs-track"><span class="evs-fill pos" style="width:${pct(E)}"></span>${over?`<span class="evs-mark" style="left:${pct(E)}"></span>`:''}</span><b class="num">${ils(E)}</b></div>
+      <div class="evs-row"><span class="evs-l">Spent</span><span class="evs-track">${spentBar}${over?`<span class="evs-mark" style="left:${pct(E)}"></span>`:''}</span><b class="num ${over?'neg':''}">${ils(Sp)}</b></div>
+    </div>
+    <div class="evs-key">${over?`<span><i class="k-neg"></i>Spent beyond what you earned</span>`:`<span><i class="k-gap"></i>Not spent, left over</span>`}</div>
+    <div class="facts"><div><small>Saved and invested</small><b class="num">${ils(D.savedOut-D.savedBack)}</b></div><div><small>End balance</small><b class="num">${D.eb!=null?ils(D.eb):'None'}</b></div></div></section>`;
 }
-function drawWaterfall(id,earned,outs,left){
-  if(!document.getElementById(id))return;
-  const labels=['Earned',...outs.map(([c])=>CL(c)),left>=0?'Left over':'Shortfall'];
-  let run=earned;const data=[[0,earned]];const colors=[css('--pos')];
-  for(const[c,v]of outs){data.push([run-v,run]);run-=v;colors.push(bColor(c))}
-  data.push(left>=0?[0,left]:[left,0]);colors.push(left>=0?css('--pos'):css('--neg'));
-  const vals=[earned,...outs.map(x=>-x[1]),left];const ink=css('--ink'),mut=css('--muted');
-  const valPlugin={id:'vals',afterDatasetsDraw(ch){const ctx=ch.ctx;const meta=ch.getDatasetMeta(0);ctx.save();ctx.font='600 12.5px '+(css('--font')||'sans-serif');ctx.textBaseline='middle';
-    meta.data.forEach((bar,i)=>{const v=vals[i];const txt=(i===0||i===vals.length-1)?ils(v):'−'+ils(Math.abs(v));const right=Math.max(bar.x,bar.base);const w=ctx.measureText(txt).width;const fits=right+6+w<ch.chartArea.right+40;ctx.fillStyle=i===0||i===vals.length-1?ink:mut;ctx.textAlign='left';ctx.fillText(txt,fits?right+6:Math.min(bar.x,bar.base)-6-w,bar.y)});ctx.restore()}};
-  chart(id,{type:'bar',data:{labels,datasets:[{data,backgroundColor:colors,borderRadius:4,borderSkipped:false,barPercentage:.78,categoryPercentage:.92}]},plugins:[valPlugin],
-    options:{indexAxis:'y',layout:{padding:{right:86}},interaction:{mode:'nearest',intersect:true},plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.label}: ${ils(Math.abs(vals[c.dataIndex]))}`}}},
-      scales:{x:{display:false,grid:{display:false}},y:{grid:{display:false},border:{display:false},ticks:{color:ink,font:{size:13}}}}}});
+function cardWidgetData(M){
+  const mt=matchBills();const all=cardStatements();
+  const matched=new Set();Object.values(mt).forEach(x=>{if(x.status==='matched')x.st.forEach(s=>matched.add(s.key))});
+  const per=(m)=>{const o={};all.filter(s=>s.b.slice(0,7)===m&&!cardHidden(s.k)).forEach(s=>{const c=o[s.k]||(o[s.k]={k:s.k,total:0,keys:[]});c.total=r2(c.total+s.total);c.keys.push(s.key)});return o};
+  const cur=per(M),prev=per(addM(M,-1));
+  const rows=Object.values(cur).map(c=>({k:c.k,name:cardName(c.k),person:(S.meta.cards[c.k]||{}).person||'',total:c.total,prev:prev[c.k]?prev[c.k].total:null,status:c.keys.every(k=>matched.has(k))?'ok':'nobank',m:addM(M,-1)}));
+  const hb=hiddenBillIds();
+  S.bank.filter(r=>r.m===M&&r.c==='Card bills'&&r.a<0&&!hb.has(r.id)).forEach(r=>{const x=mt[r.id];if(x&&x.status!=='matched')rows.push({k:null,name:billName(r,mt),person:'',total:-r.a,prev:null,status:x.status==='partial'?'partial':'missing',have:x.have})});
+  return rows.sort((a,b)=>b.total-a.total);
+}
+function cardWidgetHTML(M){
+  const rows=cardWidgetData(M);
+  if(!rows.length)return `<section class="sec ccw box"><div class="subhead"><h2>Credit cards</h2><button class="linkbtn" data-layer="cards" data-cm="${addM(M,-1)}">Open cards</button></div><p class="hint">No card statements for ${mLong(M)} yet. Upload them to see each card here.</p></section>`;
+  const max=Math.max(...rows.map(r=>r.total),1);const tot=r2(sum(rows.map(r=>r.total)));
+  const st=r=>r.status==='ok'?'<span class="mstat ok">Matches the bank charge</span>':r.status==='nobank'?'<span class="mstat mute">Not charged to this account</span>':r.status==='partial'?`<span class="mstat warn">Statement covers ${ils(r.have,2)} of it</span>`:'<span class="mstat warn">Statement missing</span>';
+  const ch=r=>{if(r.prev==null)return '';const d=r2(r.total-r.prev);if(Math.abs(d)<1)return '<span class="muted">same as last month</span>';return `<span class="${d>0?'up':'down'}">${d>0?'▲':'▼'} ${ils(Math.abs(d))}</span>`};
+  return `<section class="sec ccw box"><div class="subhead"><h2>Credit cards</h2><button class="linkbtn" data-layer="cards" data-cm="${addM(M,-1)}">Open cards</button></div><p class="hint">What each card charged in ${mLong(M)}, for purchases made in ${mLong(addM(M,-1))}.</p>
+  <div class="ccw-list">${rows.map(r=>`<div class="ccw-row" ${r.k?`data-billgo="${esc(JSON.stringify({cards:[r.k],m:r.m}))}" role="button" tabindex="0"`:''}>
+    <div class="ccw-name"><b dir="auto">${esc(r.name)}</b><small>${esc(r.person||'')}${r.person?' · ':''}${ch(r)}</small></div>
+    <div class="ccw-bar"><span style="width:${(r.total/max*100).toFixed(1)}%"></span></div>
+    <b class="num ccw-amt">${ils(r.total,2)}</b>
+    <div class="ccw-st">${st(r)}</div></div>`).join('')}
+  </div><div class="ccw-total"><span>Total</span><b class="num">${ils(tot,2)}</b></div></section>`;
 }
 window.view_cashflow=function(){
   if(!S.bank.length)return `<section class="empty-state"><h2>Add your bank account</h2><p>Upload a bank statement (PDF or Excel) to see what you earn, what you spend, and how each card bill matches its statement.</p><button class="btn pri" data-upload>Upload bank statement</button></section>`;
-  const M=monthCtx().M;if(futureMonths().includes(M))return forecastHTML(M,'','');
-  const D=bankMonthData(M);const mt=matchBills();const eb=endBalance(M);
-  const hero=`<section class="hero2"><p class="lbl">${D.left>=0?'Left over after spending':'Spent more than earned'}</p><p class="bignum num ${D.left>=0?'pos':'neg'}">${D.left>=0?'+':'−'}${ils(Math.abs(D.left))}</p>
-    <div class="facts"><div><small>Earned</small><b class="num">${ils(D.earned)}</b></div><div><small>Spent</small><b class="num">${ils(D.spent)}</b></div><div><small>Saved, invested</small><b class="num">${ils(D.savedOut-D.savedBack)}</b></div><div><small>End balance</small><b class="num">${eb!=null?ils(eb):'None'}</b></div></div></section>
-    <section class="sec"><h2>From earned to ${D.left>=0?'left over':'shortfall'}</h2><p class="hint">Start with what came in and take away each kind of spending.</p>${waterfallHTML(D.earned,D.outs,D.left)}</section>`;
+  const M=monthCtx().M;
+  const D=bankMonthData(M);D.eb=endBalance(M);
   const tot=Math.max(1,D.spent),itot=Math.max(1,D.earned);const sh=(v,t)=>v/t<.01?'<1%':Math.round(v/t*100)+'%';
   const row=(c,v,share)=>`<div class="row" ${c==='Card bills'?`data-layer="cards" data-cm="${addM(M,-1)}" role="button" tabindex="0"`:`data-bcat="${esc(c)}" role="button" tabindex="0"`}><i style="background:${bColor(c)}"></i><span class="nm">${esc(CL(c))}</span><span class="sh num">${share}</span><b class="num">${ils(v)}</b><span class="chev" aria-hidden="true">›</span></div>`;
-  const bills=D.rows.filter(r=>r.c==='Card bills'&&r.a<0).sort((a,b)=>a.d.localeCompare(b.d)||a.a-b.a);
-  const billHTML=bills.map(r=>`<div class="bill"><div class="bl"><b dir="auto">${esc(billName(r,mt))}</b><small>Paid ${+r.d.slice(8,10)} ${MN[+r.d.slice(5,7)-1]}</small></div><b class="num">${ils(-r.a,2)}</b><div class="bs">${matchHTML(r,mt)}</div></div>`).join('');
   const savRows=D.rows.filter(r=>isSav(r.c));
   const savHTML=[...new Set(savRows.map(r=>r.c))].map(c=>{const pi=-sum(savRows.filter(r=>r.c===c&&r.a<0).map(r=>r.a)),to=sum(savRows.filter(r=>r.c===c&&r.a>0).map(r=>r.a));return `<div class="row" data-bcat="${esc(c)}" role="button" tabindex="0"><i style="background:${bColor(c)}"></i><span class="nm">${esc(CL(c))}<small>${ils(pi)} put in${to?`, ${ils(to)} taken out`:''}</small></span><span class="sh"></span><b class="num">${ils(pi-to)}</b><span class="chev" aria-hidden="true">›</span></div>`}).join('');
-  return `${hero}
-  <div class="cols">
-   <section class="sec"><h2>Spent by category</h2><div class="rows">${D.outs.map(([c,v])=>row(c,v,sh(v,tot))).join('')||'<p class="hint">Nothing spent this month.</p>'}</div>
-    ${bills.length?`<div class="sub"><div class="subhead"><h3>Card bills</h3><button class="linkbtn" data-layer="cards" data-cm="${addM(M,-1)}">Open credit cards</button></div><p class="hint">Each bill pays for the previous month's card spending.</p>${billHTML}</div>`:''}</section>
-   <section class="sec"><h2>Earned by category</h2><div class="rows">${D.ins.map(([c,v])=>row(c,v,sh(v,itot))).join('')||'<p class="hint">Nothing earned this month.</p>'}</div>
-    ${savHTML?`<h2 class="h2b">Not counted</h2><p class="hint">Savings, investments and anything you excluded in Filter.</p><div class="rows">${savHTML}</div>`:''}</section>
+  return `${evsHTML(D)}
+  <section class="sec box"><h2>Spent by category</h2>
+    <div class="catwrap"><div class="rows">${D.outs.map(([c,v])=>row(c,v,sh(v,tot))).join('')||'<p class="hint">Nothing spent this month.</p>'}</div>
+    ${D.outs.length?`<div class="donut"><canvas id="c_spentpie" aria-label="Spent by category chart"></canvas><div class="donut-c"><small>Spent</small><b class="num">${ils(D.spent)}</b></div></div>`:''}</div></section>
+  <div class="pair">
+    ${cardWidgetHTML(M)}
+    <section class="sec box"><h2>Earned by category</h2><div class="rows">${D.ins.map(([c,v])=>row(c,v,sh(v,itot))).join('')||'<p class="hint">Nothing earned this month.</p>'}</div>
+      ${savHTML?`<h3 class="h2b">Not counted</h3><p class="hint">Savings, investments and anything you excluded in Filter.</p><div class="rows">${savHTML}</div>`:''}</section>
   </div>
-  <div class="cols"><section class="sec"><h2>Earned and spent by month</h2><div class="chart"><canvas id="c_inout"></canvas></div></section><section class="sec"><h2>Account balance</h2><div class="chart"><canvas id="c_bal"></canvas></div></section></div>`;
+  <div class="pair">
+    <section class="sec box"><h2>Earned and spent by month</h2><div class="chart"><canvas id="c_inout"></canvas></div></section>
+    <section class="sec box"><h2>Account balance</h2><div class="chart"><canvas id="c_bal"></canvas></div></section>
+  </div>`;
 };
 window.view_banktx=function(){
   if(!S.bank.length)return window.view_cashflow();
@@ -824,6 +874,10 @@ window.after_cashflow=function(){
   const ds=[{label:'Earned',data:all.map(m=>fut.includes(m)?null:by(m,false,1)),backgroundColor:G,borderRadius:3},{label:'Spent',data:all.map(m=>fut.includes(m)?null:by(m,false,-1)),backgroundColor:R,borderRadius:3},{label:'Saved and invested (net)',data:all.map(m=>fut.includes(m)?null:r2(by(m,true,-1)-by(m,true,1))),backgroundColor:'#2A86B8',borderRadius:3}];
   if(fut.length){ds.push({label:'Expected earned',data:all.map(m=>{const i=fut.indexOf(m);return i<0?null:r2(F[i].earned)}),backgroundColor:G+'66',borderColor:G,borderWidth:1,borderRadius:3},{label:'Expected spent',data:all.map(m=>{const i=fut.indexOf(m);return i<0?null:r2(F[i].spent)}),backgroundColor:R+'66',borderColor:R,borderWidth:1,borderRadius:3})}
   chart('c_inout',{type:'bar',data:{labels:L,datasets:ds}});
+  {const D=bankMonthData(monthCtx().M);if(D.outs.length)chart('c_spentpie',{type:'doughnut',data:{labels:D.outs.map(([c])=>CL(c)),datasets:[{data:D.outs.map(([,v])=>r2(v)),backgroundColor:D.outs.map(([c])=>bColor(c)),borderColor:css('--surface'),borderWidth:2,hoverOffset:4}]},
+    options:{cutout:'68%',interaction:{mode:'nearest',intersect:true},plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.label}: ${ils(c.parsed)} (${Math.round(c.parsed/Math.max(1,D.spent)*100)}%)`}}},
+      onClick:(e,els)=>{if(!els.length)return;const c=D.outs[els[0].index][0];if(c==='Card bills'){S.view='overview';S.month=addM(monthCtx().M,-1)}else{S.bcat=c;S.view='banktx'}renderAll();scrollTo(0,0)},
+      onHover:(e,els)=>{e.native.target.style.cursor=els.length?'pointer':'default'}}})}
   const bal=ms.map(m=>endBalance(m));let run=bal[bal.length-1];const exp=fut.map((m,i)=>{run=r2(run+F[i].earned-F[i].spent);return run});
   const P=css('--primary');
   chart('c_bal',{type:'line',data:{labels:L,datasets:[{label:'Balance',data:[...bal,...fut.map(()=>null)],borderColor:P,backgroundColor:P+'1F',fill:true,borderWidth:2.5,pointRadius:3,tension:.3},...(fut.length?[{label:'Expected balance (before savings)',data:[...bal.map((v,i)=>i===bal.length-1?v:null),...exp],borderColor:P,borderDash:[6,4],borderWidth:2,pointRadius:3,tension:.3}]:[])]},options:{plugins:{legend:{display:!!fut.length}}}});
@@ -1025,22 +1079,21 @@ async function claudeMap(st){
   st.rows=rowsFromAoa(st.aoa,map,st.hi+1,{fmt:st.fmt});st.needsMap=false;st.mapped='Claude';
 }
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('Could not load '+src));document.head.appendChild(s)})}
-async function pdfText(f){
-  if(!window.pdfjsLib){await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'}
-  const doc=await pdfjsLib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise;let txt='';
-  for(let p=1;p<=doc.numPages;p++){const pg=await doc.getPage(p);const tc=await pg.getTextContent();const lines={};for(const it of tc.items){const y=Math.round(it.transform[5]/3);(lines[y]||(lines[y]=[])).push({x:it.transform[4],s:it.str})}
-    txt+=`\n--- page ${p} ---\n`+Object.keys(lines).sort((a,b)=>b-a).map(y=>lines[y].sort((a,b)=>b.x-a.x).map(o=>o.s).join(' ')).join('\n')}
-  return txt;
+async function pdfLib(){
+  if(!window.pdfjsLib){await loadScript('vendor/pdfjs/pdf.min.js');window.pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdfjs/pdf.worker.min.js'}
+  return window.pdfjsLib;
 }
-const EXTRACT_SPEC=`Reply with only JSON: {"card_last4":"1234"|null,"cardholder":string|null,"issuer":string|null,"bill_date":"YYYY-MM-DD"|null,"statement_total":number|null,"transactions":[{"date":"YYYY-MM-DD","merchant":string,"charged":number,"original_amount":number|null,"original_currency":"USD"|"EUR"|"GBP"|null,"type":"regular"|"installment"|"standing"|"refund","installment":"3/5"|null,"sector":string|null,"note":string|null}]}. "charged" is the shekel amount billed (refunds negative). Include card fees as transactions. Israeli dates are day/month/year. Keep Hebrew merchant names as printed, in correct reading order. Skip ads, totals and point summaries.`;
+function nameHelpers(){
+  const cnt={};for(const r of S.rows)cnt[r.n]=(cnt[r.n]||0)+1;
+  const names=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a]);const set=new Set(names);
+  const byLetters={};for(const n of names){const k=LedgerPDF.letters(n);if(!byLetters[k])byLetters[k]=n}
+  return{knownName:n=>set.has(n),sameLetters:n=>byLetters[LedgerPDF.letters(n)]||null,knownPrefix:p=>names.find(n=>n!==p&&n.startsWith(p))||null};
+}
 async function parsePDF(f,progress){
-  if(!S.sample)throw new Error('PDF reading is turned off in the offline app. Export the statement as Excel from your bank or card website and upload that.');
-  progress&&progress('Reading text from '+f.name);
-  const text=(await pdfText(f)).slice(0,150000);
-  if(/דף חשבון|יתרה מצטברת|עובר ושב|תנועות בחשבון/.test(text)&&/זכות/.test(text)&&/חובה/.test(text))return parseBankText(f,text,progress);
-  progress&&progress('Claude is extracting transactions from '+f.name+' (this can take a minute)');
-  const j=await S.sample.json(`Extract every transaction from this credit card statement text (Hebrew RTL text may appear reversed).\n${EXTRACT_SPEC}\n\nSTATEMENT TEXT:\n${text}`,{modelTier:'default'});
-  return [{file:f.name,kind:'PDF',card:j.card_last4||null,cardholder:j.cardholder,issuer:j.issuer,total:j.statement_total,bill:j.bill_date,rows:(j.transactions||[]).map(t=>({date:t.date,merchant:t.merchant,amount:+t.charged,oa:t.original_amount,oc:t.original_currency,type:t.type,inst:t.installment,sector:t.sector||'',note:t.note||'',bill:j.bill_date||undefined}))}];
+  progress&&progress('Reading '+f.name+' on this device');
+  const lib=await pdfLib();
+  const sts=await LedgerPDF.parse(lib,new Uint8Array(await f.arrayBuffer()),nameHelpers());
+  return sts.map(st=>({file:f.name,kind:'PDF',card:st.card,cardholder:st.cardholder,issuer:st.issuer,total:st.total,bill:st.bill,rows:st.rows}));
 }
 async function parseImages(files,progress){
   if(!S.sample||!(S.limits&&S.limits.images))throw new Error('Screenshots cannot be read in the offline app. Export the statement as Excel instead.');
@@ -1129,16 +1182,16 @@ async function commitReview(){
 }
 
 /* ---------- statements from Google Drive ---------- */
-const newInbox=()=>(S.inbox||[]).filter(f=>!(S.meta.importedFiles||{})[f.id]&&(f.kind==='sheet'||f.kind==='gsheet'));
-function updateUploadBadge(){const b=$('#uploadBtn');if(!b)return;const n=newInbox().length;b.textContent=n?`Upload (${n})`:'Upload';b.setAttribute('aria-label',n?`Add statements, ${n} new in Google Drive`:'Add statements')}
+const newInbox=()=>(S.inbox||[]).filter(f=>!(S.meta.importedFiles||{})[f.id]&&(f.kind==='sheet'||f.kind==='gsheet'||f.kind==='pdf'));
+function updateUploadBadge(){const b=$('#uploadBtn'),g=$('#uploadBadge');if(!b)return;const n=newInbox().length;if(g){g.textContent=n;g.hidden=!n}b.setAttribute('aria-label',n?`Upload statements, ${n} new in Google Drive`:'Upload statements')}
 async function refreshInbox(announce){try{S.inbox=await window.LedgerGate.inbox.list()}catch(e){S.inbox=null}updateUploadBadge();const n=newInbox().length;if(announce&&n)toast(`${n} new statement${n>1?'s':''} in Google Drive. Tap Upload to import.`,6000)}
 function openUploadSheet(){
   const L=window.LedgerGate;const inb=S.inbox;const imp=S.meta.importedFiles||{};
   const fresh=(inb||[]).filter(f=>!imp[f.id]),done=(inb||[]).filter(f=>imp[f.id]);
-  const note=f=>f.kind==='pdf'?'PDF cannot be read. Export the statement as Excel instead.':f.kind==='other'?'Not an Excel or CSV file.':'';
+  const note=f=>f.kind==='other'?'Not an Excel, CSV or PDF file.':'';
   const when=f=>new Date(f.modified).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
   sheet(`<div class="shead"><button type="button" class="btn ghost" id="upClose">Close</button><b>Add statements</b><span style="width:56px"></span></div>
-  <h3 class="sh3">From Google Drive</h3><p class="hint">Upload Excel or CSV statements to <b>${esc(L.inbox.folderName())}</b> from the Drive app on your phone or computer. New files appear here.</p>
+  <h3 class="sh3">From Google Drive</h3><p class="hint">Upload Excel, CSV or PDF statements to <b>${esc(L.inbox.folderName())}</b> from the Drive app on your phone or computer. New files appear here.</p>
   ${inb===null?'<p class="badline">Could not reach Google Drive. Check your connection and try again.</p>':''}
   <div class="inblist">${fresh.map(f=>`<div class="inbrow"><input type="checkbox" id="inb_${esc(f.id)}" data-inb="${esc(f.id)}" ${note(f)?'disabled':'checked'}><label for="inb_${esc(f.id)}"><span dir="auto">${esc(f.name)}</span><small>${when(f)}${note(f)?'. '+note(f):''}</small></label><button type="button" class="linkbtn" data-inbskip="${esc(f.id)}">Skip</button></div>`).join('')||(inb?'<p class="hint">No new statements in the folder.</p>':'')}</div>
   <div class="foot" style="justify-content:space-between;align-items:center"><button type="button" class="linkbtn" id="upRefresh">Check again</button>${fresh.some(f=>!note(f))?'<button type="button" class="btn pri" id="upImport">Import selected</button>':''}</div>
@@ -1200,6 +1253,7 @@ async function suggestCats(){
 document.addEventListener('click',e=>{
   const t=e.target.closest('button,th,tr,[data-cat],[data-month],[data-store],[data-layer],[data-row],[data-planedit],[data-bcat]');if(!t)return;const d=t.dataset;
   if(t.id==='uploadBtn'||d.upload!==undefined){openUploadSheet();return}
+  if(d.nav){S.bcat=null;S.view=d.nav==='bank'?'cashflow':d.nav==='cards'?'overview':'settings';renderAll();scrollTo(0,0);return}
   if(d.view){if(d.view!=='banktx')S.bcat=null;S.view=d.view;renderAll();scrollTo(0,0);return}
   if(d.month){S.month=d.month;renderAll();return}
   if(d.sort){const[id,k]=d.sort.split('|');const st=TBL[id];if(st.key===k)st.dir*=-1;else{st.key=k;st.dir=-1}renderMain();return}
@@ -1243,6 +1297,8 @@ document.addEventListener('click',e=>{
   if(d.planedit!==undefined){openPlanSheet(+d.planedit);return}
   if(t.id==='backupBtn'){t.disabled=true;window.LedgerGate.backup().then(()=>toast('Backup downloaded. It is not encrypted, so keep it somewhere safe.',6000)).catch(e=>toast('Backup failed: '+(e.code||e.message))).finally(()=>t.disabled=false);return}
   if(t.id==='lockBtn'){window.LedgerGate.lock();return}
+  if(d.hhrm){if(t.dataset.confirm!=='1'){t.dataset.confirm='1';t.textContent='Tap again to remove';setTimeout(()=>{if(t.isConnected){t.dataset.confirm='';t.textContent='Remove'}},4000);return}
+    t.disabled=true;window.LedgerGate.household.remove(d.hhrm).then(()=>{toast(`${d.hhname} no longer has access to the ledger folder.`,5000);loadHousehold()}).catch(x=>{t.disabled=false;toast('Could not remove: '+(x.message||x.code))});return}
 
   if(t.id==='planAdd'){openPlanSheet(-1);return}
   if(t.id==='planAddOld'){const ps=JSON.parse(JSON.stringify(planned()));let n=1;while(ps.some(p=>p.id==='p'+n))n++;ps.push({id:'p'+n,name:'New payment',c:'Other',amount:1000,every:1,next:addM(todayISO().slice(0,7),1)+'-01'});S.meta.planned=ps;saveMeta();renderMain();return}
