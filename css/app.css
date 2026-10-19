@@ -477,13 +477,13 @@ td.wrap{min-width:150px;white-space:normal}
 @media (max-width:520px){.sec.box{padding:16px;border-radius:12px}}
 
 /* ---------- widget containers (Cards screens) ---------- */
-body[data-layer="cards"] #main>.panel,body[data-layer="cards"] #main>.sec,body[data-layer="cards"] #main>.hero2,
-body[data-layer="cards"] #main .grid>.panel,body[data-layer="cards"] #main .grid>.sec,body[data-layer="cards"] #main .cols>.sec,body[data-layer="cards"] #main .cols>.panel{
+body[data-screen="cards"] #main>.panel,body[data-screen="cards"] #main>.sec,body[data-screen="cards"] #main>.hero2,
+body[data-screen="cards"] #main .grid>.panel,body[data-screen="cards"] #main .grid>.sec,body[data-screen="cards"] #main .cols>.sec,body[data-screen="cards"] #main .cols>.panel{
   background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:16px 0 0;box-shadow:0 1px 2px color-mix(in srgb,var(--ink) 5%,transparent)}
-body[data-layer="cards"] #main .grid,body[data-layer="cards"] #main .cols{gap:0 16px}
-body[data-layer="cards"] #main>:last-child{margin-bottom:28px}
-body[data-layer="cards"] #main th{background:var(--surface)}
-@media (max-width:520px){body[data-layer="cards"] #main>.panel,body[data-layer="cards"] #main>.sec,body[data-layer="cards"] #main>.hero2,body[data-layer="cards"] #main .grid>.panel,body[data-layer="cards"] #main .cols>.sec{padding:16px;border-radius:12px}}
+body[data-screen="cards"] #main .grid,body[data-screen="cards"] #main .cols{gap:0 16px}
+body[data-screen="cards"] #main>:last-child{margin-bottom:28px}
+body[data-screen="cards"] #main th{background:var(--surface)}
+@media (max-width:520px){body[data-screen="cards"] #main>.panel,body[data-screen="cards"] #main>.sec,body[data-screen="cards"] #main>.hero2,body[data-screen="cards"] #main .grid>.panel,body[data-screen="cards"] #main .cols>.sec{padding:16px;border-radius:12px}}
 /* stat tiles always fill their row, so no empty cell shows */
 .kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important;background:var(--line)}
 .kpi{background:var(--surface)}
