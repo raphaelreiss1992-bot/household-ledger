@@ -1093,7 +1093,7 @@ async function parsePDF(f,progress){
   progress&&progress('Reading '+f.name+' on this device');
   const lib=await pdfLib();
   const sts=await LedgerPDF.parse(lib,new Uint8Array(await f.arrayBuffer()),nameHelpers());
-  return sts.map(st=>({file:f.name,kind:'PDF',card:st.card,cardholder:st.cardholder,issuer:st.issuer,total:st.total,bill:st.bill,rows:st.rows}));
+  return sts.map(st=>st.bank?{file:f.name,bank:true,kind:'Bank PDF',acct:st.acct,rows:st.rows}:({file:f.name,kind:'PDF',card:st.card,cardholder:st.cardholder,issuer:st.issuer,total:st.total,bill:st.bill,rows:st.rows}));
 }
 async function parseImages(files,progress){
   if(!S.sample||!(S.limits&&S.limits.images))throw new Error('Screenshots cannot be read in the offline app. Export the statement as Excel instead.');

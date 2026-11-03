@@ -167,14 +167,56 @@
     }));
   }
 
-  const ISSUERS = [{ name: 'Cal', test: isCal, parse: parseCal }];
+  /* ---------- bank account statement (Leumi "דף חשבון" export) ---------- */
+  function isBank(text) { return /דף חשבון/.test(text) && /יתרה/.test(text) && /זכות/.test(text) && /חובה/.test(text); }
+  function parseBank(pages) {
+    const DATE = /^(\d{2})\.(\d{2})\.(\d{4})$/;
+    const num = s => { const m = String(s).replace(/[₪\s‎‏]/g, '').match(/^(-?)([\d,]+\.\d{2})(-?)$/); return m ? parseFloat(m[2].replace(/,/g, '')) * ((m[1] || m[3]) ? -1 : 1) : null; };
+    let acct = null; let cols = null; const rows = [];
+    const mid = w => (w.x0 + w.x1) / 2;
+    for (const page of pages) {
+      for (const r of page) {
+        const line = readLine(r.ws);
+        const am = line.match(/מספר חשבון:?\s*([\d\/-]{6,})/) || (/מספר חשבון/.test(line) && r.ws.map(w => w.s.match(/^\d{2,3}-\d{5,9}(?:\/\d+)?$/)).find(Boolean));
+        if (am && !acct) acct = am[1] || am[0];
+        // header row: remember where the credit, debit and balance columns sit
+        const fw = re => r.ws.find(w => re.test(w.s));
+        if (fw(/^זכות$/) && fw(/^חובה$/)) {
+          const bal = fw(/^יתרה$/) || fw(/^מצטברת$/);
+          cols = { credit: mid(fw(/^זכות$/)), debit: mid(fw(/^חובה$/)), bal: bal ? Math.min(...r.ws.filter(w => /^(יתרה|מצטברת)$/.test(w.s)).map(mid)) + 20 : null, desc: mid(fw(/^סוג$/) || fw(/^תנועה$/) || fw(/^תיאור$/) || fw(/^פרטים$/) || { x0: 420, x1: 480 }) };
+          continue;
+        }
+        if (!cols) continue;
+        const ws = r.ws.slice().sort((a, b) => b.x1 - a.x1);
+        const dw = ws.find(w => DATE.test(w.s) && w.x0 > cols.desc);
+        if (!dw) continue;
+        const [, d, m, y] = dw.s.match(DATE);
+        let credit = 0, debit = 0, bal = null; const desc = [];
+        for (const w of ws) {
+          if (w === dw || /^₪$/.test(w.s)) continue;
+          const v = num(w.s);
+          if (v != null && mid(w) < cols.desc - 40) {
+            const c = mid(w);
+            const near = [['credit', cols.credit], ['debit', cols.debit], ['bal', cols.bal]].filter(x => x[1] != null).sort((a, b) => Math.abs(c - a[1]) - Math.abs(c - b[1]))[0][0];
+            if (near === 'credit') credit = v; else if (near === 'debit') debit = Math.abs(v); else bal = v;
+          } else if (mid(w) > cols.credit + 30) desc.push(w);
+        }
+        const a = Math.round((credit - debit) * 100) / 100;
+        if (!a) continue;
+        rows.push({ date: `${y}-${m}-${d}`, ds: readLine(desc), a, bal });
+      }
+    }
+    return rows.length ? [{ bank: true, kind: 'Bank PDF', acct: acct || 'bank', rows }] : [];
+  }
+
+  const ISSUERS = [{ name: 'Cal', test: isCal, parse: parseCal }, { name: 'bank statement', test: isBank, parse: parseBank }];
 
   async function parse(pdfjsLib, data, opts) {
     const pages = await readPages(pdfjsLib, data);
     const text = pages.map(rows => rows.map(r => readLine(r.ws)).join('\n')).join('\n');
     const iss = ISSUERS.find(i => i.test(text));
     if (!iss) {
-      const e = new Error('This PDF layout is not supported yet. Supported: Cal (Diners, FLY CARD) statements. For other cards, export the statement as Excel.');
+      const e = new Error('This PDF layout is not supported yet. Supported: Cal (Diners, FLY CARD) card statements and Leumi bank account statements. For other cards, export the statement as Excel.');
       e.code = 'unsupported'; throw e;
     }
     const sts = iss.parse(pages, opts || {});
