@@ -74,7 +74,7 @@ On the second device: sign in with the same Google account, type the same passph
 2. Upload them to **Household ledger → Statements to import** in Google Drive (phone or Mac).
 3. Open the app → **Upload (n)** → **Import selected** → check the totals → **Save to ledger**.
 
-Files stay in the Drive folder; the app remembers which ones it imported. PDFs are read on the device with PDF.js (no AI): Cal statements are supported, and the app checks that the transactions add up to the statement total. Other PDF layouts are refused rather than guessed: use the Excel export for those. Screenshots cannot be read. **Choose files…** in the same sheet still lets you pick a file directly from the device.
+Files stay in the Drive folder; the app remembers which ones it imported. PDFs are read on the device with PDF.js (no AI): Cal (Diners, FLY CARD) and Isracard card statements and Leumi bank statements are supported, and the app checks that the transactions add up to the statement total. Other PDF layouts are refused rather than guessed: use the Excel export for those. Screenshots cannot be read. **Choose files…** in the same sheet still lets you pick a file directly from the device.
 
 ## Good to know
 

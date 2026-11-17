@@ -209,14 +209,97 @@
     return rows.length ? [{ bank: true, kind: 'Bank PDF', acct: acct || 'bank', rows }] : [];
   }
 
-  const ISSUERS = [{ name: 'Cal', test: isCal, parse: parseCal }, { name: 'bank statement', test: isBank, parse: parseBank }];
+  /* ---------- Isracard (and cards it runs, e.g. Mastercard / Fly Card) ---------- */
+  function isIsracard(text) { return /ישראכרט|isracard/i.test(text) && /פרוט פעולותיך/.test(text); }
+  function parseIsracard(pages, opts) {
+    const known = opts && opts.knownName, prefix = opts && opts.knownPrefix;
+    const D2 = /^(\d{2})\/(\d{2})\/(\d{2})$/;
+    const r2 = v => Math.round(v * 100) / 100;
+    let bill = null, card = null, holder = null, sec = null, foreignTot = null, domTot = null, domNet = null, fee = null, carried = 0;
+    const rows = [];
+    const tidy = n => n.replace(/\s+/g, ' ').trim();
+    const nameOf = raw => {
+      let n = tidy(fixLatin(raw, known).replace(/\s\?\s/g, ' - '));
+      if (known && known(n)) return n;
+      const same = opts && opts.sameLetters && opts.sameLetters(n); if (same) return same;
+      if (prefix && n.length >= 12) { const full = prefix(n); if (full) return full; }
+      return n;
+    };
+    for (const page of pages) {
+      for (const r of page) {
+        const line = readLine(r.ws);
+        const ws = r.ws.slice().sort((a, b) => b.x1 - a.x1);
+        const bm = line.match(/פרוט פעולותיך לתאריך:?\s*(\d{2})\/(\d{2})\/(\d{2})/); if (bm && !bill) bill = iso(bm[1], bm[2], bm[3]);
+        const cm = line.match(/שמסתיים בספרות:?\s*(\d{4})/); if (cm && !card) card = cm[1];
+        if (!card) { const w = ws.find(w => /^\*?\d{4}\*?$/.test(w.s) && w.x0 > 500); if (w) card = w.s.replace(/\*/g, ''); }
+        if (/רכישות בחו"ל/.test(line)) { sec = 'foreign'; continue; }
+        if (/עסקות שחויבו/.test(line)) { sec = 'domestic'; continue; }
+        if (/סה"כ חיוב בניכוי ההנחה/.test(line)) { const w = ws.find(w => money(w.s)); if (w) domNet = money(w.s).v; sec = null; continue; }
+        if (/^סה"כ חיוב לתאריך/.test(line)) {
+          const ms = ws.filter(w => money(w.s) && w.x0 > 140); const w = ms.sort((a, b) => b.x0 - a.x0)[0];
+          if (sec === 'foreign') { foreignTot = w ? money(w.s).v : null; sec = null; }
+          else { domTot = w ? money(w.s).v : null; }
+          continue;
+        }
+        if (sec === 'domestic' && /כולל מע"מ/.test(line) && !ws.some(w => D2.test(w.s))) { const w = ws.find(w => money(w.s) && w.x0 > 215); if (w) fee = money(w.s).v; continue; }
+        if (!sec) continue;
+        const dw = ws.find(w => D2.test(w.s) && w.x0 > 480);
+        if (!dw) continue;
+        const [, d, m, y] = dw.s.match(D2);
+        const date = iso(d, m, y);
+        if (sec === 'foreign') {
+          const merch = ws.filter(w => w.x0 >= 375 && w.x0 < 480 && w !== dw && !/^[אק]$/.test(w.s));
+          const kind = ws.find(w => /^[אק]$/.test(w.s) && w.x0 > 475);
+          let oa = null, oc = 'ILS'; const curW = ws.find(w => /^[$€£]$|^EU$/.test(w.s) && w.x0 > 330 && w.x0 < 380);
+          const oaW = ws.find(w => money(w.s) && w.x0 >= 330 && w.x0 < 375); if (oaW) oa = money(oaW.s).v;
+          if (curW) oc = CUR[curW.s] || curW.s;
+          const net = ws.filter(w => money(w.s) && w.x0 < 185).sort((a, b) => a.x0 - b.x0)[0];
+          const feeW = ws.find(w => money(w.s) && w.x0 >= 190 && w.x0 < 222);
+          const amount = net ? money(net.s).v : (oc === 'ILS' ? oa : null);
+          if (amount == null) continue;
+          const row = { date, merchant: nameOf(readLine(merch)), amount, type: kind && kind.s === 'ק' ? 'standing' : 'regular', note: 'רכישה בחו"ל', bill: bill || undefined, oa, oc };
+          if (feeW) row.fx = money(feeW.s).v;
+          rows.push(row);
+        } else {
+          const kindW = ws.filter(w => w.x0 >= 445 && w.x0 < 480).map(w => w.s).join(' ');
+          const merch = ws.filter(w => w.x0 >= 350 && w.x0 < 445);
+          const sector = readLine(ws.filter(w => w.x0 >= 295 && w.x0 < 350));
+          const txW = ws.find(w => money(w.s) && w.x0 >= 265 && w.x0 < 300);
+          const chW = ws.find(w => money(w.s) && w.x0 >= 222 && w.x0 < 265);
+          const det = ws.filter(w => w.x1 <= 225);
+          const detail = readLine(det);
+          if (!chW && !txW) continue;
+          let amount = chW ? money(chW.s).v : money(txW.s).v;
+          const dm = detail.match(/הנחה\s*₪?\s*([\d,]+\.\d{2})/); const disc = dm ? parseFloat(dm[1].replace(/,/g, '')) : 0;
+          amount = r2(amount - disc);
+          const im = detail.match(/תשלום\s*(\d+)\s*מ(?:תוך)?\s*(\d+)/);
+          const type = im ? 'installment' : /ה\.?קבע/.test(kindW) ? 'standing' : amount < 0 ? 'refund' : 'regular';
+          const row = { date, merchant: nameOf(readLine(merch)), amount, sector, note: tidy([kindW, detail].filter(Boolean).join(' · ')), type, bill: bill || undefined };
+          if (txW) row.oa = money(txW.s).v;
+          if (im) row.inst = im[1] + '/' + im[2];
+          // a charge moved from the previous statement repeats purchases already listed there
+          if (/חיוב ממועד קודם/.test(row.merchant)) { carried = r2(carried + amount); continue; }
+          rows.push(row);
+        }
+      }
+    }
+    if (fee) {
+      const [by, bmo] = (bill || '').split('-').map(Number);
+      const last = bill ? new Date(Date.UTC(by, bmo - 1, 0)).toISOString().slice(0, 10) : null;
+      rows.push({ date: last || bill, merchant: 'דמי כרטיס', amount: fee, sector: '', note: 'דמי כרטיס/הנפקה', type: 'regular', bill: bill || undefined });
+    }
+    const total = (foreignTot != null || domNet != null || domTot != null) ? r2((foreignTot || 0) + (domNet != null ? domNet : (domTot || 0)) - carried) : null;
+    return rows.length ? [{ kind: 'PDF', issuer: 'Isracard', card, cardholder: holder, bill, total, carried: carried || undefined, rows }] : [];
+  }
+
+  const ISSUERS = [{ name: 'Cal', test: isCal, parse: parseCal }, { name: 'Isracard', test: isIsracard, parse: parseIsracard }, { name: 'bank statement', test: isBank, parse: parseBank }];
 
   async function parse(pdfjsLib, data, opts) {
     const pages = await readPages(pdfjsLib, data);
     const text = pages.map(rows => rows.map(r => readLine(r.ws)).join('\n')).join('\n');
     const iss = ISSUERS.find(i => i.test(text));
     if (!iss) {
-      const e = new Error('This PDF layout is not supported yet. Supported: Cal (Diners, FLY CARD) card statements and Leumi bank account statements. For other cards, export the statement as Excel.');
+      const e = new Error('This PDF layout is not supported yet. Supported: Cal (Diners, FLY CARD) and Isracard card statements, and Leumi bank account statements. For other cards, export the statement as Excel.');
       e.code = 'unsupported'; throw e;
     }
     const sts = iss.parse(pages, opts || {});
